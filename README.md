@@ -1,0 +1,1 @@
+# Blender_VSE_SRT_Subtitle_Importer_4.2_extension
