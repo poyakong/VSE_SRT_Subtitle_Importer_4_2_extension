@@ -1,1 +1,1 @@
-# Blender_VSE_SRT_Subtitle_Importer_4.2_extension
+SRT Subtitle Importer/Exporter Extension for Blender 4.2+
