@@ -3,7 +3,7 @@ schema_version = "1.0.0"
 # Example of manifest file for a Blender extension
 # Change the values according to your extension
 id = "VSE_SRT_Subtitle_Importer_4_2_extension"
-version = "1.0.2"
+version = "1.0.4"
 name = "SRT Subtitle Importer/Exporter"
 tagline = "Import/Export SRT subtitle files to/from VSE strips"
 maintainer = "poyakong"

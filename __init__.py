@@ -13,17 +13,28 @@ from bpy_extras.io_utils import ImportHelper, ExportHelper
 
 # SRT time format: 00:00:00,000
 def parse_srt_time(time_str):
+    # Handle negative times
+    if '-' in time_str:
+        return -parse_srt_time(time_str.replace('-', ''))
     # Convert SRT time format to seconds
     hours, minutes, seconds = time_str.replace(',', '.').split(':')
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 def format_srt_time(seconds):
+    # Handle negative times
+    sign = "-" if seconds < 0 else ""
+    
+    # Work with absolute value for calculations
+    abs_seconds = abs(seconds)
+    
     # Convert seconds to SRT time format
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    seconds = seconds % 60
-    milliseconds = int((seconds - int(seconds)) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
+    hours = int(abs_seconds // 3600)
+    minutes = int((abs_seconds % 3600) // 60)
+    secs = int(abs_seconds % 60)
+    milliseconds = int((abs_seconds - int(abs_seconds)) * 1000)
+    
+    # Format with sign if negative
+    return f"{sign}{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
 
 # Get scene FPS
 def get_scene_fps(scene):
@@ -117,6 +128,8 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
                 fps = self.custom_fps
             
             # Open and read the SRT file
+            # Note: Python will automatically handle newline characters for different platforms (Windows[\r\n], Linux[\n], Macintosh[\r])
+            # Note: And replace it with [\n] when file.read() is called
             with open(self.filepath, 'r', encoding='utf-8-sig') as file:
                 content = file.read()
             
@@ -126,7 +139,7 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
             # 2: start time (HH:MM:SS,MMM)
             # 3: end time (HH:MM:SS,MMM)
             # 4: text (Texts until [a digits with a newline] or [EOF])
-            pattern = r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n\n\d+\n|$)'
+            pattern = r'(\d+)\n(-?\d{2}:\d{2}:\d{2},\d{3}) --> (-?\d{2}:\d{2}:\d{2},\d{3})\n([\s\S]*?)(?=\n+\d+|\n*$)'
             matches = re.findall(pattern, content)
             
             if not matches:
@@ -149,7 +162,7 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
             if template_strip_name and template_strip_name in seq_editor.sequences_all:
                 template_strip = seq_editor.sequences_all[template_strip_name]
 
-            # Subtitles avoidance (automatically find an empty channel if there is conflict) (unstable)
+            # Subtitles avoidance (automatically find an empty channel if there is conflict)
             # This approach is unstable, but it is clear and easy to understand
 
             # Store user prefer channel (for future use)
@@ -164,6 +177,11 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
                 # Convert start and end times to frames
                 first_frame = int(self.start_frame + parse_srt_time(first_subtitle[1]) * fps)
                 last_frame = int(self.start_frame + parse_srt_time(last_subtitle[2]) * fps)
+                duration = last_frame - first_frame
+
+                # [edge case] Handle if duration is unvalid(non-positive)
+                if duration <= 0:
+                    duration = 1
                 
                 # Create a temporary text strip to detect available channel
                 bpy.ops.sequencer.select_all(action='DESELECT')
@@ -172,7 +190,7 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
                 bpy.ops.sequencer.effect_strip_add(
                     type='TEXT',
                     frame_start=first_frame,
-                    frame_end=last_frame,
+                    frame_end=first_frame + duration,
                     channel=self.subtitle_channel
                 )
                 
@@ -195,6 +213,10 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
                 start_frame = int(self.start_frame + start_sec * fps)
                 end_frame = int(self.start_frame + end_sec * fps)
                 duration = end_frame - start_frame
+
+                # [edge case] Handle if duration is unvalid(non-positive)
+                if duration <= 0:
+                    duration = 1
                 
                 # Clean up text (remove extra newlines at end)
                 text = text.strip()
@@ -281,10 +303,33 @@ class SEQUENCER_OT_ExportSRT(Operator, ExportHelper):
         default=24.0,
         min=1.0
     )
+
+    use_scene_start_frame: BoolProperty(
+        name="Use Scene Start Frame",
+        description="Use the scene's start frame instead of a custom value",
+        default=True
+    )
+    
+    custom_start_frame: IntProperty(
+        name="Custom Start Frame",
+        description="Custom start frame for subtitles",
+        default=1,
+        min=0
+    )
     
     def draw(self, context):
         layout = self.layout
         
+        layout.prop(self, "use_scene_start_frame")
+        
+        # Only show custom start frame option if use_scene_start_frame is off
+        if not self.use_scene_start_frame:
+            layout.prop(self, "custom_start_frame")
+        else:
+            # Display the current scene start frame (read-only)
+            start_frame = context.scene.frame_start
+            layout.label(text=f"Current Scene Start Frame: {start_frame}")
+
         layout.prop(self, "use_scene_fps")
         
         # Only show custom FPS option if use_scene_fps is off
@@ -306,6 +351,12 @@ class SEQUENCER_OT_ExportSRT(Operator, ExportHelper):
             fps = get_scene_fps(scene)
         else:
             fps = self.custom_fps
+
+        # Determine which start frame to use
+        if self.use_scene_start_frame:
+            start_frame = scene.frame_start
+        else:
+            start_frame = self.custom_start_frame
         
         # Get selected text strips
         selected_strips = [strip for strip in context.selected_sequences if strip.type == 'TEXT']
@@ -328,8 +379,8 @@ class SEQUENCER_OT_ExportSRT(Operator, ExportHelper):
             with open(self.filepath, 'w', encoding='utf-8') as file:
                 for i, strip in enumerate(selected_strips, 1):
                     # Calculate start and end times in SRT format
-                    start_sec = (strip.frame_start - 1) / fps
-                    end_sec = strip.frame_final_end / fps
+                    start_sec = (strip.frame_start - start_frame) / fps
+                    end_sec = (strip.frame_final_end - start_frame) / fps
                     
                     start_time = format_srt_time(start_sec)
                     end_time = format_srt_time(end_sec)
