@@ -82,6 +82,12 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
         default=1
     )
 
+    use_frame_current: BoolProperty(
+        name="Start at Playhead",
+        description="Generate subtitles at the current frame of Playhead in VSE",
+        default=True
+    )
+
     subtitle_channel: IntProperty(
     name="Subtitle Channel",
     description="Channel to generate subtitles",
@@ -105,8 +111,17 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
     
     def draw(self, context):
         layout = self.layout
+
+        layout.prop(self, "use_frame_current")
         
-        layout.prop(self, "start_frame")
+        if not self.use_frame_current:
+            layout.prop(self, "start_frame")
+        else:
+            frame_current = context.scene.frame_current
+            layout.label(text=f"Start from Playhead: {frame_current}")
+
+
+
         layout.prop(self, "use_scene_fps")
         
         # Only show custom FPS option if use_scene_fps is off
@@ -165,8 +180,14 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
             # Subtitles avoidance (automatically find an empty channel if there is conflict)
             # This approach is unstable, but it is clear and easy to understand
 
-            # Store user prefer channel (for future use)
+            # Store user prefer channel (and restore at end)
             subtitle_channel_old = self.subtitle_channel
+            # Store user prefer start frame (and restore at end)
+            start_frame_old = self.start_frame
+
+            # Change start frame to Playhead if use_frame_current is True
+            if self.use_frame_current:
+                self.start_frame = context.scene.frame_current
 
             # Find the first and last frame of all subtitles
             if matches:
@@ -273,6 +294,8 @@ class SEQUENCER_OT_ImportSRT(Operator, ImportHelper):
             
             # Restore user prefer channel
             self.subtitle_channel = subtitle_channel_old
+            # Restore user prefer start frame
+            self.start_frame = start_frame_old
 
             # Get file name
             filename = os.path.basename(self.filepath)
@@ -365,11 +388,20 @@ class SEQUENCER_OT_ExportSRT(Operator, ExportHelper):
             self.report({'ERROR'}, "No text strips selected")
             return {'CANCELLED'}
         else:
-            export_channel = selected_strips[0].channel
-            for strip in selected_strips:
-                if strip.channel != export_channel:
-                    self.report({'ERROR'}, "All selected strips must be on the same channel to avoid conflicts")
+            # Head to tail overlap detection
+            # 1. Sort strips by start frame
+            sorted_strips = sorted(selected_strips, key=lambda strip: strip.frame_start)
+            # 2. Compare each strip's start with previous strip's end
+            current_end = sorted_strips[0].frame_final_end
+    
+            for strip in sorted_strips[1:]:
+                if strip.frame_start < current_end:
+                    self.report({'ERROR'}, f"Overlapping subtitles detected: {strip.name} at frame {current_end}")
+                    # Set the Playhead at current_end to prompt user
+                    scene.frame_current = current_end
                     return {'CANCELLED'}
+                else:
+                    current_end = strip.frame_final_end
         
         # Sort strips by start frame
         selected_strips.sort(key=lambda strip: strip.frame_start)

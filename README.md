@@ -1,4 +1,4 @@
-# VSE_SRT_Subtitle_Importer_4_2_extension
+# SRT Subtitle Importer/Exporter
 SRT Subtitle Importer/Exporter for Blender 4.2+
 
 ## Features
@@ -10,3 +10,13 @@ SRT Subtitle Importer/Exporter for Blender 4.2+
 
 ### SRT Export
 - **Easy Export**: Selects all text strips in the scene with a single click and exports them as standard SRT subtitle files.
+
+## Tips
+- Edit multiple text strip at a time (Blender built-in feature)  
+	1. Select multiple text strips  
+	2. Type the property in sidebar (such as font size [15])  
+	3. Hit [Alt] + [Enter]
+
+- Edit multiple text strip at a time (Blender built-in feature)
+	1. Hold [Alt]  
+	2. Change the property in sidebar by pressing the [left kick], and drag the mouse to adjust the value (such as font size)  
